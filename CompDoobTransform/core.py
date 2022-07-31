@@ -476,3 +476,93 @@ class model(torch.nn.Module):
         output = {'states' : states, 'ess' : ess, 'log_norm_const' : log_norm_const}
 
         return output
+
+    def run_GIRF(self, initial_states, observations, num_samples, guiding_function, full_path = False):
+        """
+        Run guided intermediate resampling filter.
+        
+        Parameters
+        ----------
+        initial_states : initial states of X process (N, d)
+        
+        observations : sequence of observations to be filtered (K, p)
+
+        num_samples : sample size (int)
+
+        guiding_function : guiding functions whose product over time steps is the observation density (dict)
+
+        full_path : if full path of X is required (bool)
+
+        Returns
+        -------
+        dict containing:    
+            states : X process at observation times (N, K+1, d) or (N, K*M+1, d) if full_path == True
+            ess : effective sample sizes at unit times (K+1)        
+            log_norm_const : log-normalizing constant estimates (K+1)
+        """
+        
+        # initialize and preallocate
+        N = num_samples
+        Y = observations
+        K = observations.shape[0]        
+        d = self.d
+        M = self.M
+        X = initial_states        
+        if full_path:
+            states = torch.zeros(N, K*M+1, d, device = self.device)
+        else:
+            states = torch.zeros(N, K+1, d, device = self.device)
+        states[:, 0, :] = X
+        ess = torch.zeros(K*M + 1, device = self.device)
+        ess[0] = N
+        log_ratio_norm_const = guiding_function['initial'](X[0,:].reshape(1,d), Y[0,:]) 
+        log_norm_const = torch.zeros(K*M + 1, device = self.device)
+        log_norm_const[0] = log_ratio_norm_const
+        
+        # each observation
+        for k in range(K):        
+            
+            # each time interval
+            for m in range(M):
+                # time step 
+                stepsize = self.stepsizes[m]
+                t = self.time[m]
+
+                # Brownian increment
+                W = torch.sqrt(stepsize) * torch.randn(N, d, device = self.device) # size (N, d)
+                
+                # simulate X process forwards in time
+                drift_X = self.b(X)
+                euler_X = X + stepsize * drift_X
+                X_next = euler_X + self.sigma * W
+                if full_path:
+                    index = k*M + m + 1
+                    states[:, index, :] = X_next
+
+                # compute and normalize weights, compute ESS and normalizing constant
+                if m == (M-1) and k < (K-1):
+                    log_weights = guiding_function['obs_time'](m+1, X, X_next, Y[k,:], Y[k+1,:])
+                else:
+                    log_weights = guiding_function['intermediate'](m+1, X, X_next, Y[k,:])
+                max_log_weights = torch.max(log_weights)
+                weights = torch.exp(log_weights - max_log_weights)
+                normalized_weights = weights / torch.sum(weights)
+                ess[k*M + m + 1] = 1.0 / torch.sum(normalized_weights**2)
+                log_ratio_norm_const = log_ratio_norm_const + torch.log(torch.mean(weights)) + max_log_weights
+                log_norm_const[k*M + m + 1] = log_ratio_norm_const
+
+                # resampling            
+                ancestors = resampling(normalized_weights, N)
+                X = X_next[ancestors,:]
+
+                # store states 
+                if full_path:
+                    states[:, k*M + m + 1, :] = X
+            if not full_path:
+                states[:, k + 1, :] = X
+
+        # output
+        output = {'states' : states, 'ess' : ess, 'log_norm_const' : log_norm_const}
+
+        return output
+
