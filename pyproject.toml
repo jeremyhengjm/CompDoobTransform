@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=42", "torch"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "CompDoobTransform"
+version = "0.1.0"
+description = "Computational Doob's h-transforms for Online Filtering of Discretely Observed Diffusions"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Jeremy Heng", email = "jeremyhengjm@gmail.com"}  
+]
+homepage = "https://github.com/jeremyhengjm/CompDoobTransform"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "torch>=2.2.2"
+]
